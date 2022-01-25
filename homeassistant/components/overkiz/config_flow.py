@@ -1,7 +1,6 @@
 """Config flow for Overkiz (by Somfy) integration."""
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from aiohttp import ClientError
@@ -19,11 +18,9 @@ from homeassistant import config_entries
 from homeassistant.components import dhcp
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.data_entry_flow import FlowResult
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import CONF_HUB, DEFAULT_HUB, DOMAIN
-
-_LOGGER = logging.getLogger(__name__)
+from .const import CONF_HUB, DEFAULT_HUB, DOMAIN, LOGGER
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -36,16 +33,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         username = user_input[CONF_USERNAME]
         password = user_input[CONF_PASSWORD]
         server = SUPPORTED_SERVERS[user_input[CONF_HUB]]
+        session = async_get_clientsession(self.hass)
 
-        async with OverkizClient(
-            username=username, password=password, server=server
-        ) as client:
-            await client.login()
+        client = OverkizClient(
+            username=username, password=password, server=server, session=session
+        )
 
-            # Set first gateway as unique id
-            if gateways := await client.get_gateways():
-                gateway_id = gateways[0].id
-                await self.async_set_unique_id(gateway_id)
+        await client.login()
+
+        # Set first gateway id as unique id
+        if gateways := await client.get_gateways():
+            gateway_id = gateways[0].id
+            await self.async_set_unique_id(gateway_id)
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -66,7 +65,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "server_in_maintenance"
             except Exception as exception:  # pylint: disable=broad-except
                 errors["base"] = "unknown"
-                _LOGGER.exception(exception)
+                LOGGER.exception(exception)
             else:
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
@@ -92,19 +91,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         hostname = discovery_info.hostname
         gateway_id = hostname[8:22]
 
-        _LOGGER.debug("DHCP discovery detected gateway %s", obfuscate_id(gateway_id))
+        LOGGER.debug("DHCP discovery detected gateway %s", obfuscate_id(gateway_id))
 
-        if self._gateway_already_configured(gateway_id):
-            _LOGGER.debug("Gateway %s is already configured", obfuscate_id(gateway_id))
-            return self.async_abort(reason="already_configured")
+        await self.async_set_unique_id(gateway_id)
+        self._abort_if_unique_id_configured()
 
         return await self.async_step_user()
-
-    def _gateway_already_configured(self, gateway_id: str) -> bool:
-        """See if we already have a gateway matching the id."""
-        device_registry = dr.async_get(self.hass)
-        return bool(
-            device_registry.async_get_device(
-                identifiers={(DOMAIN, gateway_id)}, connections=set()
-            )
-        )

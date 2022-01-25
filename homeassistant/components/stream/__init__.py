@@ -97,19 +97,21 @@ def create_stream(
     return stream
 
 
+DOMAIN_SCHEMA = vol.Schema(
+    {
+        vol.Optional(CONF_LL_HLS, default=True): cv.boolean,
+        vol.Optional(CONF_SEGMENT_DURATION, default=6): vol.All(
+            cv.positive_float, vol.Range(min=2, max=10)
+        ),
+        vol.Optional(CONF_PART_DURATION, default=1): vol.All(
+            cv.positive_float, vol.Range(min=0.2, max=1.5)
+        ),
+    }
+)
+
 CONFIG_SCHEMA = vol.Schema(
     {
-        DOMAIN: vol.Schema(
-            {
-                vol.Optional(CONF_LL_HLS, default=False): cv.boolean,
-                vol.Optional(CONF_SEGMENT_DURATION, default=6): vol.All(
-                    cv.positive_float, vol.Range(min=2, max=10)
-                ),
-                vol.Optional(CONF_PART_DURATION, default=1): vol.All(
-                    cv.positive_float, vol.Range(min=0.2, max=1.5)
-                ),
-            }
-        )
+        DOMAIN: DOMAIN_SCHEMA,
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -154,7 +156,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.data[DOMAIN] = {}
     hass.data[DOMAIN][ATTR_ENDPOINTS] = {}
     hass.data[DOMAIN][ATTR_STREAMS] = []
-    if (conf := config.get(DOMAIN)) and conf[CONF_LL_HLS]:
+    conf = DOMAIN_SCHEMA(config.get(DOMAIN, {}))
+    if conf[CONF_LL_HLS]:
         assert isinstance(conf[CONF_SEGMENT_DURATION], float)
         assert isinstance(conf[CONF_PART_DURATION], float)
         hass.data[DOMAIN][ATTR_SETTINGS] = StreamSettings(
@@ -424,11 +427,21 @@ class Stream:
             await hls.recv()
             recorder.prepend(list(hls.get_segments())[-num_segments:])
 
-    async def get_image(
+    async def async_get_image(
         self,
         width: int | None = None,
         height: int | None = None,
     ) -> bytes | None:
-        """Wrap get_image from KeyFrameConverter."""
+        """
+        Fetch an image from the Stream and return it as a jpeg in bytes.
 
-        return await self._keyframe_converter.get_image(width=width, height=height)
+        Calls async_get_image from KeyFrameConverter. async_get_image should only be
+        called directly from the main loop and not from an executor thread as it uses
+        hass.add_executor_job underneath the hood.
+        """
+
+        self.add_provider(HLS_PROVIDER)
+        self.start()
+        return await self._keyframe_converter.async_get_image(
+            width=width, height=height
+        )
