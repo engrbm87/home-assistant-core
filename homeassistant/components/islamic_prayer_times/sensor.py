@@ -1,9 +1,14 @@
 """Platform to retrieve Islamic prayer times information for Home Assistant."""
 
-from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import DEVICE_CLASS_TIMESTAMP
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceEntryType
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 import homeassistant.util.dt as dt_util
@@ -30,7 +35,7 @@ class IslamicPrayerTimeSensor(CoordinatorEntity, SensorEntity):
     """Representation of an Islamic prayer time sensor."""
 
     coordinator: IslamicPrayerDataCoordinator
-    _attr_device_class = DEVICE_CLASS_TIMESTAMP
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_icon = PRAYER_TIMES_ICON
     _attr_should_poll = False
 
@@ -43,17 +48,15 @@ class IslamicPrayerTimeSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = description.key
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, "Islamic Prayer Times")},
-            "default_name": "Islamic Prayer Times",
-            "entry_type": "service",
-        }
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "Islamic Prayer Times")},
+            default_name="Islamic Prayer Times",
+            entry_type=DeviceEntryType.SERVICE,
+        )
 
     @property
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
-        return (
-            self.coordinator.data[self.entity_description.key]
-            .astimezone(dt_util.UTC)
-            .isoformat()
+        return self.coordinator.data[self.entity_description.key].astimezone(
+            dt_util.UTC
         )

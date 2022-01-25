@@ -2,26 +2,23 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 import logging
 import os
 from pathlib import Path
 import re
 import shutil
 from types import ModuleType
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import urlparse
 
 from awesomeversion import AwesomeVersion
 import voluptuous as vol
 from voluptuous.humanize import humanize_error
 
-from homeassistant import auth
-from homeassistant.auth import (
-    mfa_modules as auth_mfa_modules,
-    providers as auth_providers,
-)
-from homeassistant.const import (
+from . import auth
+from .auth import mfa_modules as auth_mfa_modules, providers as auth_providers
+from .const import (
     ATTR_ASSUMED_STATE,
     ATTR_FRIENDLY_NAME,
     ATTR_HIDDEN,
@@ -52,20 +49,20 @@ from homeassistant.const import (
     TEMP_CELSIUS,
     __version__,
 )
-from homeassistant.core import DOMAIN as CONF_CORE, SOURCE_YAML, HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import config_per_platform, extract_domain_configs
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.entity_values import EntityValues
-from homeassistant.helpers.typing import ConfigType
-from homeassistant.loader import Integration, IntegrationNotFound
-from homeassistant.requirements import (
-    RequirementsNotFound,
-    async_get_integration_with_requirements,
+from .core import DOMAIN as CONF_CORE, ConfigSource, HomeAssistant, callback
+from .exceptions import HomeAssistantError
+from .helpers import (
+    config_per_platform,
+    config_validation as cv,
+    extract_domain_configs,
 )
-from homeassistant.util.package import is_docker_env
-from homeassistant.util.unit_system import IMPERIAL_SYSTEM, METRIC_SYSTEM
-from homeassistant.util.yaml import SECRET_YAML, Secrets, load_yaml
+from .helpers.entity_values import EntityValues
+from .helpers.typing import ConfigType
+from .loader import Integration, IntegrationNotFound
+from .requirements import RequirementsNotFound, async_get_integration_with_requirements
+from .util.package import is_docker_env
+from .util.unit_system import IMPERIAL_SYSTEM, METRIC_SYSTEM
+from .util.yaml import SECRET_YAML, Secrets, load_yaml
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -512,9 +509,7 @@ async def async_process_ha_core_config(hass: HomeAssistant, config: dict) -> Non
 
     # Only load auth during startup.
     if not hasattr(hass, "auth"):
-        auth_conf = config.get(CONF_AUTH_PROVIDERS)
-
-        if auth_conf is None:
+        if (auth_conf := config.get(CONF_AUTH_PROVIDERS)) is None:
             auth_conf = [{"type": "homeassistant"}]
 
         mfa_conf = config.get(
@@ -544,7 +539,7 @@ async def async_process_ha_core_config(hass: HomeAssistant, config: dict) -> Non
             CONF_CURRENCY,
         )
     ):
-        hac.config_source = SOURCE_YAML
+        hac.config_source = ConfigSource.YAML
 
     for key, attr in (
         (CONF_LATITUDE, "latitude"),
@@ -598,9 +593,7 @@ async def async_process_ha_core_config(hass: HomeAssistant, config: dict) -> Non
     cust_glob = OrderedDict(config[CONF_CUSTOMIZE_GLOB])
 
     for name, pkg in config[CONF_PACKAGES].items():
-        pkg_cust = pkg.get(CONF_CORE)
-
-        if pkg_cust is None:
+        if (pkg_cust := pkg.get(CONF_CORE)) is None:
             continue
 
         try:
@@ -925,7 +918,7 @@ async def async_process_component_config(  # noqa: C901
 
 
 @callback
-def config_without_domain(config: dict, domain: str) -> dict:
+def config_without_domain(config: ConfigType, domain: str) -> ConfigType:
     """Return a config with all configuration for a domain removed."""
     filter_keys = extract_domain_configs(config, domain)
     return {key: value for key, value in config.items() if key not in filter_keys}
@@ -937,7 +930,7 @@ async def async_check_ha_config_file(hass: HomeAssistant) -> str | None:
     This method is a coroutine.
     """
     # pylint: disable=import-outside-toplevel
-    from homeassistant.helpers import check_config
+    from .helpers import check_config
 
     res = await check_config.async_check_ha_config_file(hass)
 
@@ -955,11 +948,9 @@ def async_notify_setup_error(
     This method must be run in the event loop.
     """
     # pylint: disable=import-outside-toplevel
-    from homeassistant.components import persistent_notification
+    from .components import persistent_notification
 
-    errors = hass.data.get(DATA_PERSISTENT_ERRORS)
-
-    if errors is None:
+    if (errors := hass.data.get(DATA_PERSISTENT_ERRORS)) is None:
         errors = hass.data[DATA_PERSISTENT_ERRORS] = {}
 
     errors[component] = errors.get(component) or display_link

@@ -27,7 +27,7 @@ CONF_MIDNIGHT_MODE: Final = "midnightMode"
 CONF_LAT_ADJ_METHOD: Final = "latitudeAdjustmentMethod"
 CONF_TUNE: Final = "tune"
 CONF_IMSAK_TUNE: Final = "imsak_tune"
-CONF_FARJ_TUNE: Final = "fajr_tune"
+CONF_FAJR_TUNE: Final = "fajr_tune"
 CONF_SUNRISE_TUNE: Final = "sunrise_tune"
 CONF_DHUHR_TUNE: Final = "dhuhr_tune"
 CONF_ASR_TUNE: Final = "asr_tune"
@@ -59,7 +59,7 @@ MIDNIGHT_MODES: Final = ["Standard", "Jafari"]
 
 TIMES_TUNE: Final = [
     CONF_IMSAK_TUNE,
-    CONF_FARJ_TUNE,
+    CONF_FAJR_TUNE,
     CONF_SUNRISE_TUNE,
     CONF_DHUHR_TUNE,
     CONF_ASR_TUNE,
@@ -75,5 +75,3 @@ DEFAULT_MIDNIGHT_MODE: Final = "Standard"
 DEFAULT_LAT_ADJ_METHOD: Final = "Angle Based"
 
 PLATFORMS: Final = ["sensor"]
-
-# DATA_UPDATED = "Islamic_prayer_data_updated"

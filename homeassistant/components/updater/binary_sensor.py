@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from homeassistant.components.binary_sensor import (
-    DEVICE_CLASS_UPDATE,
+    BinarySensorDeviceClass,
     BinarySensorEntity,
 )
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -21,16 +21,19 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 class UpdaterBinary(CoordinatorEntity, BinarySensorEntity):
     """Representation of an updater binary sensor."""
 
-    _attr_device_class = DEVICE_CLASS_UPDATE
+    _attr_device_class = BinarySensorDeviceClass.UPDATE
     _attr_name = "Updater"
     _attr_unique_id = "updater"
 
     @property
-    def is_on(self) -> bool | None:
-        """Return true if the binary sensor is on."""
-        if not self.coordinator.data:
-            return None
-        return self.coordinator.data.update_available
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return True
+
+    @property
+    def is_on(self) -> bool:
+        """Return true if there is an update available."""
+        return self.coordinator.data and self.coordinator.data.update_available
 
     @property
     def extra_state_attributes(self) -> dict | None:

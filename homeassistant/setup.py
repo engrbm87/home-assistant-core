@@ -2,24 +2,24 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Generator, Iterable
+from collections.abc import Awaitable, Callable, Generator, Iterable
 import contextlib
 import logging.handlers
 from timeit import default_timer as timer
 from types import ModuleType
-from typing import Callable
 
-from homeassistant import config as conf_util, core, loader, requirements
-from homeassistant.config import async_notify_setup_error
-from homeassistant.const import (
+from . import config as conf_util, core, loader, requirements
+from .config import async_notify_setup_error
+from .const import (
     EVENT_COMPONENT_LOADED,
     EVENT_HOMEASSISTANT_START,
     PLATFORM_FORMAT,
+    Platform,
 )
-from homeassistant.core import CALLBACK_TYPE
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.typing import ConfigType
-from homeassistant.util import dt as dt_util, ensure_unique_string
+from .core import CALLBACK_TYPE
+from .exceptions import HomeAssistantError
+from .helpers.typing import ConfigType
+from .util import dt as dt_util, ensure_unique_string
 
 # mypy: disallow-any-generics
 
@@ -27,33 +27,7 @@ _LOGGER = logging.getLogger(__name__)
 
 ATTR_COMPONENT = "component"
 
-BASE_PLATFORMS = {
-    "air_quality",
-    "alarm_control_panel",
-    "binary_sensor",
-    "camera",
-    "climate",
-    "cover",
-    "device_tracker",
-    "fan",
-    "humidifier",
-    "image_processing",
-    "light",
-    "lock",
-    "media_player",
-    "notify",
-    "number",
-    "remote",
-    "scene",
-    "select",
-    "sensor",
-    "siren",
-    "switch",
-    "tts",
-    "vacuum",
-    "water_heater",
-    "weather",
-}
+BASE_PLATFORMS = {platform.value for platform in Platform}
 
 DATA_SETUP_DONE = "setup_done"
 DATA_SETUP_STARTED = "setup_started"
@@ -366,9 +340,7 @@ async def async_process_deps_reqs(
 
     Module is a Python module of either a component or platform.
     """
-    processed = hass.data.get(DATA_DEPS_REQS)
-
-    if processed is None:
+    if (processed := hass.data.get(DATA_DEPS_REQS)) is None:
         processed = hass.data[DATA_DEPS_REQS] = set()
     elif integration.domain in processed:
         return

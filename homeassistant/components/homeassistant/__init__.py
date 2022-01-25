@@ -26,6 +26,7 @@ from homeassistant.helpers.service import (
     async_extract_config_entry_ids,
     async_extract_referenced_entity_ids,
 )
+from homeassistant.helpers.typing import ConfigType
 
 ATTR_ENTRY_ID = "entry_id"
 
@@ -51,7 +52,7 @@ SCHEMA_RELOAD_CONFIG_ENTRY = vol.All(
 SHUTDOWN_SERVICES = (SERVICE_HOMEASSISTANT_STOP, SERVICE_HOMEASSISTANT_RESTART)
 
 
-async def async_setup(hass: ha.HomeAssistant, config: dict) -> bool:  # noqa: C901
+async def async_setup(hass: ha.HomeAssistant, config: ConfigType) -> bool:  # noqa: C901
     """Set up general services related to Home Assistant."""
 
     async def async_save_persistent_states(service):
@@ -60,7 +61,7 @@ async def async_setup(hass: ha.HomeAssistant, config: dict) -> bool:  # noqa: C9
 
     async def async_handle_turn_service(service):
         """Handle calls to homeassistant.turn_on/off."""
-        referenced = await async_extract_referenced_entity_ids(hass, service)
+        referenced = async_extract_referenced_entity_ids(hass, service)
         all_referenced = referenced.referenced | referenced.indirectly_referenced
 
         # Generic turn on/off method requires entity id
@@ -137,9 +138,8 @@ async def async_setup(hass: ha.HomeAssistant, config: dict) -> bool:  # noqa: C9
 
     async def async_handle_core_service(call):
         """Service handler for handling core services."""
-        if (
-            call.service in SHUTDOWN_SERVICES
-            and await recorder.async_migration_in_progress(hass)
+        if call.service in SHUTDOWN_SERVICES and recorder.async_migration_in_progress(
+            hass
         ):
             _LOGGER.error(
                 "The system cannot %s while a database upgrade is in progress",
