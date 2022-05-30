@@ -9,7 +9,14 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.setup import async_setup_component
 import homeassistant.util.dt as dt_util
 
-from . import DEVICE_2_WIRELESS, DHCP_DATA, MOCK_DATA, MOCK_OPTIONS, WIRELESS_DATA
+from . import (
+    DEVICE_1_WIRELESS,
+    DEVICE_2_WIRELESS,
+    DHCP_DATA,
+    MOCK_DATA,
+    MOCK_OPTIONS,
+    WIRELESS_DATA,
+)
 from .test_hub import setup_mikrotik_entry
 
 from tests.common import MockConfigEntry, patch
@@ -38,10 +45,14 @@ def mock_device_registry_devices(hass):
 
 def mock_command(self, cmd, params=None):
     """Mock the Mikrotik command method."""
+    if cmd == mikrotik.const.MIKROTIK_SERVICES[mikrotik.const.IS_CAPSMAN]:
+        return True
     if cmd == mikrotik.const.MIKROTIK_SERVICES[mikrotik.const.IS_WIRELESS]:
         return True
     if cmd == mikrotik.const.MIKROTIK_SERVICES[mikrotik.const.DHCP]:
         return DHCP_DATA
+    if cmd == mikrotik.const.MIKROTIK_SERVICES[mikrotik.const.CAPSMAN]:
+        return WIRELESS_DATA
     if cmd == mikrotik.const.MIKROTIK_SERVICES[mikrotik.const.WIRELESS]:
         return WIRELESS_DATA
     return {}
@@ -64,7 +75,12 @@ async def test_device_trackers(hass, mock_device_registry_devices):
     """Test device_trackers created by mikrotik."""
 
     # test devices are added from wireless list only
-    hub = await setup_mikrotik_entry(hass)
+    entry = MockConfigEntry(
+        domain=mikrotik.DOMAIN,
+        data=MOCK_DATA,
+    )
+    entry.add_to_hass(hass)
+    hub = await setup_mikrotik_entry(hass, entry)
 
     device_1 = hass.states.get("device_tracker.device_1")
     assert device_1 is not None
@@ -81,7 +97,7 @@ async def test_device_trackers(hass, mock_device_registry_devices):
         # test device_2 is added after connecting to wireless network
         WIRELESS_DATA.append(DEVICE_2_WIRELESS)
 
-        await hub.async_update()
+        await hub.async_refresh()
         await hass.async_block_till_done()
 
         device_2 = hass.states.get("device_tracker.device_2")
@@ -98,7 +114,7 @@ async def test_device_trackers(hass, mock_device_registry_devices):
         hub.api.devices["00:00:00:00:00:02"]._last_seen = dt_util.utcnow() - timedelta(
             minutes=4
         )
-        await hub.async_update()
+        await hub.async_refresh()
         await hass.async_block_till_done()
 
         device_2 = hass.states.get("device_tracker.device_2")
@@ -108,7 +124,7 @@ async def test_device_trackers(hass, mock_device_registry_devices):
         hub.api.devices["00:00:00:00:00:02"]._last_seen = dt_util.utcnow() - timedelta(
             minutes=5
         )
-        await hub.async_update()
+        await hub.async_refresh()
         await hass.async_block_till_done()
 
         device_2 = hass.states.get("device_tracker.device_2")
@@ -138,7 +154,7 @@ async def test_restoring_devices(hass):
         config_entry=config_entry,
     )
 
-    await setup_mikrotik_entry(hass)
+    await setup_mikrotik_entry(hass, config_entry, wireless_data=[DEVICE_1_WIRELESS])
 
     # test device_2 which is not in wireless list is restored
     device_1 = hass.states.get("device_tracker.device_1")

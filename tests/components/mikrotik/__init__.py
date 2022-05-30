@@ -144,3 +144,53 @@ ARP_DATA = [
         "disabled": False,
     },
 ]
+
+PING_SUCCESS = [
+    {
+        "seq": 0,
+        "host": "192.168.3.18",
+        "sent": 1,
+        "received": 1,
+    },
+    {
+        "seq": 1,
+        "host": "F8:0D:60:35:12:B8",
+        "time": "26ms",
+        "sent": 2,
+        "received": 2,
+    },
+    {
+        "seq": 1,
+        "host": "F8:0D:60:35:12:B8",
+        "time": "26ms",
+        "sent": 2,
+        "received": 3,
+    },
+]
+
+PING_FAIL = [
+    {
+        "seq": 0,
+        "host": "192.168.3.18",
+        "status": "timeout",
+        "sent": 1,
+        "received": 0,
+        "packet-loss": 100,
+    },
+    {
+        "seq": 1,
+        "host": "F8:0D:60:35:12:B8",
+        "status": "timeout",
+        "sent": 2,
+        "received": 0,
+        "packet-loss": 100,
+    },
+    {
+        "seq": 2,
+        "host": "192.168.3.18",
+        "status": "timeout",
+        "sent": 3,
+        "received": 0,
+        "packet-loss": 100,
+    },
+]
