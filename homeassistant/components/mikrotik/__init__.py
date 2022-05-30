@@ -13,6 +13,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     hub = MikrotikHub(hass, config_entry)
     if not await hub.async_setup():
         return False
+    await hub.async_refresh()
 
     hass.data.setdefault(DOMAIN, {})[config_entry.entry_id] = hub
     device_registry = dr.async_get(hass)
@@ -35,5 +36,7 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
     )
 
     hass.data[DOMAIN].pop(config_entry.entry_id)
+    if not hass.data[DOMAIN]:
+        del hass.data[DOMAIN]
 
     return unload_ok

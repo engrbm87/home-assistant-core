@@ -48,7 +48,7 @@ class MikrotikFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     break
 
             try:
-                await self.hass.async_add_executor_job(get_api, self.hass, user_input)
+                await self.hass.async_add_executor_job(get_api, user_input)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except LoginError:

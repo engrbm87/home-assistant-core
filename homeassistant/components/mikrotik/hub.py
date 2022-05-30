@@ -7,9 +7,15 @@ import ssl
 import librouteros
 from librouteros.login import plain as login_plain, token as login_token
 
-from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, CONF_VERIFY_SSL
+from homeassistant.const import (
+    CONF_HOST,
+    CONF_PASSWORD,
+    CONF_SCAN_INTERVAL,
+    CONF_USERNAME,
+    CONF_VERIFY_SSL,
+)
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import slugify
 import homeassistant.util.dt as dt_util
 
@@ -24,7 +30,9 @@ from .const import (
     CONF_DETECTION_TIME,
     CONF_FORCE_DHCP,
     DEFAULT_DETECTION_TIME,
+    DEFAULT_SCAN_INTERVAL,
     DHCP,
+    DOMAIN,
     IDENTITY,
     INFO,
     IS_CAPSMAN,
@@ -34,7 +42,7 @@ from .const import (
     PLATFORMS,
     WIRELESS,
 )
-from .errors import CannotConnect, LoginError
+from .errors import CannotConnect, LoginError, MikrotikBaseError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -124,12 +132,12 @@ class MikrotikData:
     @property
     def arp_enabled(self):
         """Return arp_ping option setting."""
-        return self.config_entry.options[CONF_ARP_PING]
+        return self.config_entry.options.get(CONF_ARP_PING, False)
 
     @property
     def force_dhcp(self):
         """Return force_dhcp option setting."""
-        return self.config_entry.options[CONF_FORCE_DHCP]
+        return self.config_entry.options.get(CONF_FORCE_DHCP, False)
 
     def get_info(self, param):
         """Return device model name."""
@@ -153,7 +161,7 @@ class MikrotikData:
     def connect_to_hub(self):
         """Connect to hub."""
         try:
-            self.api = get_api(self.hass, self.config_entry.data)
+            self.api = get_api(self.config_entry.data)
             self.available = True
             return True
         except (LoginError, CannotConnect):
@@ -283,7 +291,7 @@ class MikrotikData:
         self.update_devices()
 
 
-class MikrotikHub:
+class MikrotikHub(DataUpdateCoordinator):
     """Mikrotik Hub Object."""
 
     def __init__(self, hass, config_entry):
@@ -291,7 +299,17 @@ class MikrotikHub:
         self.hass = hass
         self.config_entry = config_entry
         self._mk_data = None
-        self.progress = None
+        super().__init__(
+            self.hass,
+            _LOGGER,
+            name=f"{DOMAIN} - {self.host}",
+            update_method=self.async_update,
+            update_interval=timedelta(
+                seconds=self.config_entry.options.get(
+                    CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+                )
+            ),
+        )
 
     @property
     def host(self):
@@ -319,62 +337,31 @@ class MikrotikHub:
         return self._mk_data.serial_number
 
     @property
-    def available(self):
-        """Return if the hub is connected."""
-        return self._mk_data.available
-
-    @property
     def option_detection_time(self):
         """Config entry option defining number of seconds from last seen to away."""
-        return timedelta(seconds=self.config_entry.options[CONF_DETECTION_TIME])
-
-    @property
-    def signal_update(self):
-        """Event specific per Mikrotik entry to signal updates."""
-        return f"mikrotik-update-{self.host}"
+        return timedelta(
+            seconds=self.config_entry.options.get(
+                CONF_DETECTION_TIME, DEFAULT_DETECTION_TIME
+            )
+        )
 
     @property
     def api(self):
         """Represent Mikrotik data object."""
         return self._mk_data
 
-    async def async_add_options(self):
-        """Populate default options for Mikrotik."""
-        if not self.config_entry.options:
-            data = dict(self.config_entry.data)
-            options = {
-                CONF_ARP_PING: data.pop(CONF_ARP_PING, False),
-                CONF_FORCE_DHCP: data.pop(CONF_FORCE_DHCP, False),
-                CONF_DETECTION_TIME: data.pop(
-                    CONF_DETECTION_TIME, DEFAULT_DETECTION_TIME
-                ),
-            }
-
-            self.hass.config_entries.async_update_entry(
-                self.config_entry, data=data, options=options
-            )
-
-    async def request_update(self):
-        """Request an update."""
-        if self.progress is not None:
-            await self.progress
-            return
-
-        self.progress = self.hass.async_create_task(self.async_update())
-        await self.progress
-
-        self.progress = None
-
     async def async_update(self):
         """Update Mikrotik devices information."""
-        await self.hass.async_add_executor_job(self._mk_data.update)
-        async_dispatcher_send(self.hass, self.signal_update)
+        try:
+            return await self.hass.async_add_executor_job(self._mk_data.update_devices)
+        except MikrotikBaseError as err:
+            raise UpdateFailed from err
 
     async def async_setup(self):
         """Set up the Mikrotik hub."""
         try:
             api = await self.hass.async_add_executor_job(
-                get_api, self.hass, self.config_entry.data
+                get_api, self.config_entry.data
             )
         except CannotConnect as api_error:
             raise ConfigEntryNotReady from api_error
@@ -382,15 +369,13 @@ class MikrotikHub:
             return False
 
         self._mk_data = MikrotikData(self.hass, self.config_entry, api)
-        await self.async_add_options()
         await self.hass.async_add_executor_job(self._mk_data.get_hub_details)
-        await self.hass.async_add_executor_job(self._mk_data.update)
 
         self.hass.config_entries.async_setup_platforms(self.config_entry, PLATFORMS)
         return True
 
 
-def get_api(hass, entry):
+def get_api(entry):
     """Connect to Mikrotik hub."""
     _LOGGER.debug("Connecting to Mikrotik hub [%s]", entry[CONF_HOST])
 
