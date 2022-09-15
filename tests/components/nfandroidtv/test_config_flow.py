@@ -1,19 +1,12 @@
 """Test NFAndroidTV config flow."""
 from unittest.mock import patch
 
-from notifications_android_tv.notifications import ConnectError
+from notifications_android_tv import ConnectError
 
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.components.nfandroidtv.const import DOMAIN
 
-from . import (
-    CONF_CONFIG_FLOW,
-    CONF_DATA,
-    HOST,
-    NAME,
-    _create_mocked_tv,
-    _patch_config_flow_tv,
-)
+from . import CONF_CONFIG_FLOW, CONF_DATA, HOST, NAME
 
 from tests.common import MockConfigEntry
 
@@ -27,8 +20,7 @@ def _patch_setup():
 
 async def test_flow_user(hass):
     """Test user initialized flow."""
-    mocked_tv = await _create_mocked_tv()
-    with _patch_config_flow_tv(mocked_tv), _patch_setup():
+    with patch("notifications_android_tv.Notifications.async_connect"), _patch_setup():
         result = await hass.config_entries.flow.async_init(
             DOMAIN,
             context={"source": config_entries.SOURCE_USER},
@@ -52,25 +44,23 @@ async def test_flow_user_already_configured(hass):
 
     entry.add_to_hass(hass)
 
-    mocked_tv = await _create_mocked_tv()
-    with _patch_config_flow_tv(mocked_tv), _patch_setup():
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": config_entries.SOURCE_USER},
-        )
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            user_input=CONF_CONFIG_FLOW,
-        )
-        assert result["type"] == data_entry_flow.FlowResultType.ABORT
-        assert result["reason"] == "already_configured"
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_USER},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input=CONF_CONFIG_FLOW,
+    )
+    assert result["type"] == data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
 
 
 async def test_flow_user_cannot_connect(hass):
     """Test user initialized flow with unreachable server."""
-    mocked_tv = await _create_mocked_tv(True)
-    with _patch_config_flow_tv(mocked_tv) as tvmock:
-        tvmock.side_effect = ConnectError
+    with patch(
+        "notifications_android_tv.Notifications.async_connect", side_effect=ConnectError
+    ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN,
             context={"source": config_entries.SOURCE_USER},
@@ -79,18 +69,3 @@ async def test_flow_user_cannot_connect(hass):
         assert result["type"] == data_entry_flow.FlowResultType.FORM
         assert result["step_id"] == "user"
         assert result["errors"] == {"base": "cannot_connect"}
-
-
-async def test_flow_user_unknown_error(hass):
-    """Test user initialized flow with unreachable server."""
-    mocked_tv = await _create_mocked_tv(True)
-    with _patch_config_flow_tv(mocked_tv) as tvmock:
-        tvmock.side_effect = Exception
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": config_entries.SOURCE_USER},
-            data=CONF_CONFIG_FLOW,
-        )
-        assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "user"
-        assert result["errors"] == {"base": "unknown"}

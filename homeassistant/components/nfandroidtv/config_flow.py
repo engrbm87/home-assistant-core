@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from notifications_android_tv.notifications import ConnectError, Notifications
+from notifications_android_tv import ConnectError, Notifications
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -51,11 +51,7 @@ class NFAndroidTVFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def _async_try_connect(self, host: str) -> str | None:
         """Try connecting to Android TV / Fire TV."""
         try:
-            await self.hass.async_add_executor_job(Notifications, host)
+            await Notifications(host).async_connect()
         except ConnectError:
-            _LOGGER.error("Error connecting to device at %s", host)
             return "cannot_connect"
-        except Exception:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected exception")
-            return "unknown"
         return None

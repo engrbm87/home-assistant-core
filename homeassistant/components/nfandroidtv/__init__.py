@@ -1,5 +1,5 @@
 """The NFAndroidTV integration."""
-from notifications_android_tv.notifications import ConnectError, Notifications
+from notifications_android_tv import ConnectError, Notifications
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, Platform
@@ -25,8 +25,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up NFAndroidTV from a config entry."""
+    print(Notifications)
+    notifier = Notifications(entry.data[CONF_HOST])
     try:
-        await hass.async_add_executor_job(Notifications, entry.data[CONF_HOST])
+        await notifier.async_connect()
     except ConnectError as ex:
         raise ConfigEntryNotReady(
             f"Failed to connect to host: {entry.data[CONF_HOST]}"
