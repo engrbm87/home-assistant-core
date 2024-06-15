@@ -1,8 +1,65 @@
 {
-  "services": {
-    "reload": {
-      "name": "[%key:common::action::reload%]",
-      "description": "Reloads smtp notify services."
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "name": "[%key:common::config_flow::data::name%]",
+          "server": "The outgoing smtp server.",
+          "port": "The outgoing smtp port.",
+          "encryption": "The outgoing smtp encryption type.",
+          "sender": "The sender email address",
+          "username": "[%key:common::config_flow::data::username%]",
+          "password": "[%key:common::config_flow::data::password%]",
+          "debug": "Enable/disable debug in the smtp",
+          "verify_ssl": "[%key:common::config_flow::data::verify_ssl%]"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "sender_name": "The name displayed in the 'From' header",
+          "debug": "Enable debug in SMTP library"
+        }
+      }
+    }
+  },
+  "issues": {
+    "deprecated_yaml": {
+      "title": "The SMTP YAML configuration is being removed",
+      "description": "Configuring SMTP using YAML is being removed.\n\nYour existing YAML configuration has been imported into the UI automatically.\n\nRemove the SMTP YAML configuration from your configuration.yaml file and restart Home Assistant to fix this issue.\n\nThe imported recipient key will be removed in the future. Ensure that you update your scripts and automations to set the recipients as targets."
+    },
+    "missing_target": {
+      "title": "Imported recipients is being removed",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Imported recipients is being removed",
+            "description": "Recipients from imported YAML config will be removed in the future. Ensure that you update your automations or scripts to specify the recipients as targets."
+          }
+        }
+      }
+    },
+    "deprecated_sender_name_key": {
+      "title": "Imported sender name is being removed",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Imported sender name is being removed",
+            "description": "Sender name from imported YAML config will be removed in the future. Ensure that you update your automations or scripts to specify the sender name under service data."
+          }
+        }
+      }
     }
   },
   "exceptions": {

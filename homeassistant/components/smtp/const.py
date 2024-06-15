@@ -3,6 +3,8 @@
 from typing import Final
 
 DOMAIN: Final = "smtp"
+DEFAULT_NAME: Final = "smtp"
+DATA_HASS_CONFIG: Final = "smtp_hass_config"
 
 ATTR_IMAGES: Final = "images"  # optional embedded image file attachments
 ATTR_HTML: Final = "html"

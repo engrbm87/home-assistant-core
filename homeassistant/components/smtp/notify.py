@@ -11,6 +11,7 @@ import logging
 import os
 from pathlib import Path
 import smtplib
+from typing import Any
 
 import voluptuous as vol
 
@@ -21,7 +22,9 @@ from homeassistant.components.notify import (
     ATTR_TITLE_DEFAULT,
     PLATFORM_SCHEMA,
     BaseNotificationService,
+    migrate_notify_issue,
 )
+from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import (
     CONF_PASSWORD,
     CONF_PORT,
@@ -33,13 +36,17 @@ from homeassistant.const import (
     Platform,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.reload import setup_reload_service
+from homeassistant.helpers.issue_registry import (
+    IssueSeverity,
+    async_create_issue,
+    create_issue,
+)
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 import homeassistant.util.dt as dt_util
-from homeassistant.util.ssl import client_context
 
+from . import get_smtp_client
 from .const import (
     ATTR_HTML,
     ATTR_IMAGES,
@@ -52,7 +59,7 @@ from .const import (
     DEFAULT_HOST,
     DEFAULT_PORT,
     DEFAULT_TIMEOUT,
-    DOMAIN,
+    DOMAIN as SMTP_DOMAIN,
     ENCRYPTION_OPTIONS,
 )
 
@@ -78,119 +85,79 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     }
 )
 
+RECIPIENTS_SCHEMA = vol.Schema(vol.All(cv.ensure_list_csv, [vol.Email()]))
 
-def get_service(
+
+async def async_get_service(
     hass: HomeAssistant,
     config: ConfigType,
     discovery_info: DiscoveryInfoType | None = None,
 ) -> MailNotificationService | None:
     """Get the mail notification service."""
-    setup_reload_service(hass, DOMAIN, PLATFORMS)
-    mail_service = MailNotificationService(
-        config[CONF_SERVER],
-        config[CONF_PORT],
-        config[CONF_TIMEOUT],
-        config[CONF_SENDER],
-        config[CONF_ENCRYPTION],
-        config.get(CONF_USERNAME),
-        config.get(CONF_PASSWORD),
-        config[CONF_RECIPIENT],
-        config.get(CONF_SENDER_NAME),
-        config[CONF_DEBUG],
-        config[CONF_VERIFY_SSL],
-    )
+    if discovery_info is None:
+        async_create_issue(
+            hass,
+            SMTP_DOMAIN,
+            "deprecated_yaml",
+            breaks_in_ha_version="2024.9.0",
+            is_fixable=False,
+            severity=IssueSeverity.WARNING,
+            translation_key="deprecated_yaml",
+        )
+        hass.async_create_task(
+            hass.config_entries.flow.async_init(
+                SMTP_DOMAIN, context={"source": SOURCE_IMPORT}, data=config
+            )
+        )
+        return None
 
-    if mail_service.connection_is_valid():
-        return mail_service
-
-    return None
+    entry = hass.config_entries.async_get_entry(discovery_info["entry_id"])
+    assert isinstance(entry, ConfigEntry)
+    config = {**entry.data, **entry.options}
+    return MailNotificationService(config)
 
 
 class MailNotificationService(BaseNotificationService):
     """Implement the notification service for E-mail messages."""
 
-    def __init__(
-        self,
-        server,
-        port,
-        timeout,
-        sender,
-        encryption,
-        username,
-        password,
-        recipients,
-        sender_name,
-        debug,
-        verify_ssl,
-    ):
+    def __init__(self, config: dict[str, Any]) -> None:
         """Initialize the SMTP service."""
-        self._server = server
-        self._port = port
-        self._timeout = timeout
-        self._sender = sender
-        self.encryption = encryption
-        self.username = username
-        self.password = password
-        self.recipients = recipients
-        self._sender_name = sender_name
-        self.debug = debug
-        self._verify_ssl = verify_ssl
-        self.tries = 2
+        self.config = config
 
-    def connect(self):
-        """Connect/authenticate to SMTP Server."""
-        ssl_context = client_context() if self._verify_ssl else None
-        if self.encryption == "tls":
-            mail = smtplib.SMTP_SSL(
-                self._server,
-                self._port,
-                timeout=self._timeout,
-                context=ssl_context,
-            )
-        else:
-            mail = smtplib.SMTP(self._server, self._port, timeout=self._timeout)
-        mail.set_debuglevel(self.debug)
-        mail.ehlo_or_helo_if_needed()
-        if self.encryption == "starttls":
-            mail.starttls(context=ssl_context)
-            mail.ehlo()
-        if self.username and self.password:
-            mail.login(self.username, self.password)
-        return mail
-
-    def connection_is_valid(self):
-        """Check for valid config, verify connectivity."""
-        server = None
-        try:
-            server = self.connect()
-        except (smtplib.socket.gaierror, ConnectionRefusedError):
-            _LOGGER.exception(
-                (
-                    "SMTP server not found or refused connection (%s:%s). Please check"
-                    " the IP address, hostname, and availability of your SMTP server"
-                ),
-                self._server,
-                self._port,
-            )
-
-        except smtplib.SMTPAuthenticationError:
-            _LOGGER.exception(
-                "Login not possible. Please check your setting and/or your credentials"
-            )
-            return False
-
-        finally:
-            if server:
-                server.quit()
-
-        return True
-
-    def send_message(self, message="", **kwargs):
+    def send_message(self, message: str = "", **kwargs: Any) -> None:
         """Build and send a message to a user.
 
         Will send plain text normally, with pictures as attachments if images config is
         defined, or will build a multipart HTML if html config is defined.
         """
+        migrate_notify_issue(
+            self.hass,
+            SMTP_DOMAIN,
+            "SMTP",
+            "2024.12.0",
+            service_name=self._service_name,
+        )
+        if not kwargs.get(ATTR_TARGET):
+            create_issue(
+                self.hass,
+                SMTP_DOMAIN,
+                "missing_target",
+                breaks_in_ha_version="2024.9.0",
+                is_fixable=True,
+                is_persistent=True,
+                severity=IssueSeverity.WARNING,
+                translation_key="missing_target",
+            )
+            if not self.config.get(CONF_RECIPIENT):
+                raise ValueError("At least one target recipient is required")
+
+        try:
+            recipients = RECIPIENTS_SCHEMA(
+                kwargs.get(ATTR_TARGET) or self.config[CONF_RECIPIENT]
+            )
+        except vol.Invalid as err:
+            raise ValueError("Target is not a valid list of email addresses") from err
+
         subject = kwargs.get(ATTR_TITLE, ATTR_TITLE_DEFAULT)
 
         if data := kwargs.get(ATTR_DATA):
@@ -210,36 +177,29 @@ class MailNotificationService(BaseNotificationService):
 
         msg["Subject"] = subject
 
-        if not (recipients := kwargs.get(ATTR_TARGET)):
-            recipients = self.recipients
         msg["To"] = recipients if isinstance(recipients, str) else ",".join(recipients)
-        if self._sender_name:
-            msg["From"] = f"{self._sender_name} <{self._sender}>"
+
+        if sender_name := self.config.get(CONF_SENDER_NAME):
+            msg["From"] = f"{sender_name} <{self.config[CONF_SENDER]}>"
         else:
-            msg["From"] = self._sender
+            msg["From"] = self.config[CONF_SENDER]
+
         msg["X-Mailer"] = "Home Assistant"
         msg["Date"] = email.utils.format_datetime(dt_util.now())
         msg["Message-Id"] = email.utils.make_msgid()
 
-        return self._send_email(msg, recipients)
-
-    def _send_email(self, msg, recipients):
-        """Send the message."""
-        mail = self.connect()
-        for _ in range(self.tries):
+        mail = get_smtp_client(self.config)
+        for attempt in range(2):
             try:
-                mail.sendmail(self._sender, recipients, msg.as_string())
+                mail.sendmail(self.config[CONF_USERNAME], recipients, msg.as_string())
                 break
-            except smtplib.SMTPServerDisconnected:
-                _LOGGER.warning(
-                    "SMTPServerDisconnected sending mail: retrying connection"
-                )
+            except smtplib.SMTPException as err:
+                if attempt == 1:
+                    mail.quit()
+                    raise HomeAssistantError(f"Failed to send message: {err}") from err
+                _LOGGER.error("Error sending mail: %s. Retrying connection", err)
                 mail.quit()
-                mail = self.connect()
-            except smtplib.SMTPException:
-                _LOGGER.warning("SMTPException sending mail: retrying connection")
-                mail.quit()
-                mail = self.connect()
+                mail = get_smtp_client(self.config)
         mail.quit()
 
 
@@ -249,46 +209,48 @@ def _build_text_msg(message):
     return MIMEText(message)
 
 
-def _attach_file(hass, atch_name, content_id=""):
+def _attach_file(
+    hass: HomeAssistant, attach_name: str, content_id: str = ""
+) -> MIMEImage | MIMEApplication | None:
     """Create a message attachment.
 
     If MIMEImage is successful and content_id is passed (HTML), add images in-line.
     Otherwise add them as attachments.
     """
     try:
-        file_path = Path(atch_name).parent
+        file_path = Path(attach_name).parent
         if os.path.exists(file_path) and not hass.config.is_allowed_path(
             str(file_path)
         ):
             allow_list = "allowlist_external_dirs"
-            file_name = os.path.basename(atch_name)
+            file_name = os.path.basename(attach_name)
             url = "https://www.home-assistant.io/docs/configuration/basic/"
             raise ServiceValidationError(
-                translation_domain=DOMAIN,
+                translation_domain=SMTP_DOMAIN,
                 translation_key="remote_path_not_allowed",
                 translation_placeholders={
                     "allow_list": allow_list,
-                    "file_path": file_path,
+                    "file_path": str(file_path),
                     "file_name": file_name,
                     "url": url,
                 },
             )
-        with open(atch_name, "rb") as attachment_file:
+        with open(attach_name, "rb") as attachment_file:
             file_bytes = attachment_file.read()
     except FileNotFoundError:
-        _LOGGER.warning("Attachment %s not found. Skipping", atch_name)
+        _LOGGER.warning("Attachment %s not found. Skipping", attach_name)
         return None
 
     try:
-        attachment = MIMEImage(file_bytes)
+        attachment: MIMEApplication | MIMEImage = MIMEImage(file_bytes)
     except TypeError:
         _LOGGER.warning(
             "Attachment %s has an unknown MIME type. Falling back to file",
-            atch_name,
+            attach_name,
         )
-        attachment = MIMEApplication(file_bytes, Name=os.path.basename(atch_name))
+        attachment = MIMEApplication(file_bytes, Name=os.path.basename(attach_name))
         attachment["Content-Disposition"] = (
-            f'attachment; filename="{os.path.basename(atch_name)}"'
+            f'attachment; filename="{os.path.basename(attach_name)}"'
         )
     else:
         if content_id:
@@ -296,28 +258,32 @@ def _attach_file(hass, atch_name, content_id=""):
         else:
             attachment.add_header(
                 "Content-Disposition",
-                f"attachment; filename={os.path.basename(atch_name)}",
+                f"attachment; filename={os.path.basename(attach_name)}",
             )
 
     return attachment
 
 
-def _build_multipart_msg(hass, message, images):
+def _build_multipart_msg(
+    hass: HomeAssistant, message: str, images: list[str]
+) -> MIMEMultipart:
     """Build Multipart message with images as attachments."""
     _LOGGER.debug("Building multipart email with image attachme_build_html_msgnt(s)")
     msg = MIMEMultipart()
     body_txt = MIMEText(message)
     msg.attach(body_txt)
 
-    for atch_name in images:
-        attachment = _attach_file(hass, atch_name)
+    for attach_name in images:
+        attachment = _attach_file(hass, attach_name)
         if attachment:
             msg.attach(attachment)
 
     return msg
 
 
-def _build_html_msg(hass, text, html, images):
+def _build_html_msg(
+    hass: HomeAssistant, text: str, html: str, images: list[str]
+) -> MIMEMultipart:
     """Build Multipart message with in-line images and rich HTML (UTF-8)."""
     _LOGGER.debug("Building HTML rich email")
     msg = MIMEMultipart("related")
